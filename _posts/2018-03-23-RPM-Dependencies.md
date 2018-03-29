@@ -265,8 +265,8 @@ expressions, enclosed in parenthesis, can be used. The following expressions are
 * (A with B)
 * (A without B)
 
-"and" and "or" are pretty self-explanatory. "A if B [else C]" means $$B \implies A [\land \neg{B} \implies C]$$, and
-"A unless B [else C]" means $$\neg{B} \implies A [\land B \implies C]$$.
+"and" and "or" are pretty self-explanatory. "A if B [else C]" means $$B \implies A [\land (\neg{B} \implies C)]$$, and
+"A unless B [else C]" means $$\neg{B} \implies A [\land (B \implies C)]$$.
 
 For "with", the expression is satisfied by any package that satisfies both the left and
 right operands. For "without", the expression is satisfied by any package that satisfies the left operand and does not satisfy
@@ -305,41 +305,42 @@ could be satisfied by any of the following assignments:
 The only combination rejected by the formula would be A=False, B=True, C=False, and RPM chose to forbid
 the formula on the assumption that this information was not what was trying to be expressed.
 
-In the case of the second formula, since the formula is a Conflicts, packages that are part of the transaction
-must satisfy the negation. That would be:
-$$\neg{((\neg{B} \implies A) \land C)} \Leftrightarrow \neg{((B \lor A) \land C)} \Leftrightarrow ((\neg{B} \land \neg{A}) \lor C)$$.
-This formula is satisfied by:
+The second case is less clear. When used without an "else" clause, "A unless B" is equivalent to "A or B",
+and "Conflicts: ((A or B) and C)" is considered perfectly valid. If were to add an else,
+"((A unless B else D) and C)", we end up with $$(A \lor B) \land (D \lor \neg{B}) \land C$$, which
+has four solutions. It could also be expressed as two separate Conflicts clauses:
 
-* A=False, B=False, C=False
-* A=False, B=False, C=True
-* A=False, B=True, C=True
-* A=True, B=False, C=True
-* A=True, B=True, C=True
+```
+Conflicts: (A unless B else D)
+Conflicts: C
+```
 
-Having a Conflicts be satisfied both by installing all or none of the packages involved would be
-an unusual thing to express, so it's out.
+I really have no idea why RPM rejects combinations of "unless" and "and". Maybe it's an attempt for symmetry
+with the "if/else" case.
 
-The third formula, $$\neg{B} \implies A$$, is equivalent to "(B or A)", so RPM mandates the later.
+The third formula, $$\neg{B} \implies A$$, is similar to the second. Without an "else", it can be expressed
+as "(B or A)", and with an "else" it needs to be expressed as a combination of "Requires" and "Conflicts"
+for reasons that are not particularly clear.
 
-The fourth formula, $$\neg{(B \implies A)} \Leftrightarrow (B \land \neg{A})$$, is equivalent to
-"Requires: (B); Conflicts: (A)", so RPM mandates that they be separated.
+The fourth formula is the inverse of the third: Conflicts can't use "if". $$\neg{(B \implies A)} \Leftrightarrow (B \land \neg{A})$$
+is equivalent to "Requires: (B); Conflicts: (A)", so RPM mandates that they be separated.
 
 In the case of the fifth formula, $$(B \implies A) \Leftrightarrow (\neg{B} \lor A)$$, the formula
 is rejected when used with the reverse dependency types (Enhances and Supplements), since it matches
-A=False, B=False. Allowing this would allow packages to build Recommends/Suggests relationships in the
-transaction without actually being attached to another package.
+A=False, B=False. Allowing this would allow create Recommends/Suggests relationships with all packages
+that don't have either of those "Provides" values, which would be pretty wild.
 
 ### The trouble with "with"
 
 The following are also rejected by RPM:
 
-1) Requires: ((A and B) with C)
-2) Requires: ((A if B) with C)
+1. Requires: ((A and B) with C)
+2. Requires: ((A if B) with C)
 
 Recall that "with" expressions apply the operands to a single package. To evaluate a "with" expression
 to a single package, the dependency validator or solver needs to take each operand, determine a set
 of packages that could possibly satisfy the operand, and then take the intersection of the two sets.
-"without" is the same, except that it takes the difference of the two sets.
+"without" is similar, except that it takes the difference of the two sets.
 
 Rejecting the first formula tells us something about RPM's rich dependency parser, and demonstrates
 how "with" and "without" create the need to continually query the dependency data as the expression is parsed.
@@ -352,7 +353,7 @@ expression like "(A or B)" on the left hand side could be evaluated as something
 like $$pkg_{A_1} \lor pkg_{A_2} \lor pkg_{B_1} \lor ...$$, which easily converts to $$\{ pkg_{A_1}, pkg_{A_2}, pkg_{B_1}, ... \}$$.
 
 The left-hand side of the second formula reduces to $$\neg{B} \lor A$$, and while this is a simple disjunction,
-it's another example of RPM's inability to use negation except in specific contexts.
+it's another example of RPM' unwillingness to use negation except in specific contexts.
 
 ### Did I mention that these expressions are technically unparseable
 
@@ -385,3 +386,12 @@ as a parse-error, or it might be parsed as a particularly odd combination of boo
 dependencies, depending on exactly how things are arranged. Some strings are simply impossible
 to include in a boolean expression. Boolean dependencies don't explicitly create new restrictions on
 Provides strings, but they work a lot better if you pretend that they do.
+
+## Conclusions
+
+Recent additions to the semantics of RPM dependencies make them both more expressive and more difficult
+to use. Weak dependencies allow the dependency solution to be modified in certain ways while making the
+dependency solution a more difficult type of problem. Boolean dependencies allow the dependency formula
+to be extended in obvious, clear ways, but at the same time they restrict the formula in less clear ways,
+redefine the sets of data that the formula uses, and create a language that is not possible to parse
+entirely correctly.
