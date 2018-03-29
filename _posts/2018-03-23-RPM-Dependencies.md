@@ -117,9 +117,11 @@ And that's it! Your classic, everyday dependencies are just taking all of the RP
 and validating them in three different ways.
 
 $$
-\forall{r \in Requirements}(\exists{p \in (Provides \cup Filenames)}: p \models r) \\
-\forall{c \in Conflicts}(\nexists{p \in (Provides \cup Filenames)}: p \models c) \\
-\forall{o \in Obsoletes}(\nexists{n \in NEVRAs}: n \models o)
+\begin{align*}
+    & \forall{r \in Requirements}(\exists{p \in (Provides \cup Filenames)}: p \models r) \\
+    & \forall{c \in Conflicts}(\nexists{p \in (Provides \cup Filenames)}: p \models c) \\
+    & \forall{o \in Obsoletes}(\nexists{n \in NEVRAs}: n \models o)
+\end{align*}
 $$
 
 ## Dependency verification vs. dependency solving
@@ -146,20 +148,25 @@ to install bash, the minimum set of packages in Fedora 27 is:
 * libselinux
 
 No one wants to figure all of that out by hand, which is where dependency solvers come in. Tools like
-up2date, yum, and dnf are able to search a package source for necessary requirements, and then hand a
+up2date, yum, and dnf are able to search a package repository for necessary requirements, and then hand a
 complete set of packages to RPM.
 
 The inputs to a dependency solver are a set of all known packages and a set of packages to install. The
 output is a complete set of packages to hand to RPM. In the PRCO world, package requirements can be
-expressed as a boolean formula. For each requirement, conflict, and obsolete, create a disjunction over all
-packages that can satisfy the clause. The formula is then the conjunction of all the requirement
-formulas, the negation of all of the conflict formulas, and the negation of all of the obsolete formulas.
+expressed as a boolean formula: a package installation needs every requirement of that package to evaluate
+to "True" and every conflict or obsolete for that package to evaluate to "False".
+
+For each requirement, conflict, and obsolete, create a disjunction over all packages that can satisfy the clause.
+The formula is then the conjunction of all the requirement formulas, the negation of all of the conflict formulas,
+and the negation of all of the obsolete formulas.
 
 $$
-Pkgs_{A_r} = \bigwedge\limits_{r \in Requirements_A} (\bigvee \{ pkg \in Repository: (\exists p \in Provides_{pkg}: p \models r )\})\\
-Pkgs_{A_c} = \bigwedge\limits_{c \in Conflicts_A}    (\bigvee \{ pkg \in Repository: (\exists p \in Provides_{pkg}: p \models c \})\\
-Pkgs_{A_o} = \bigwedge\limits_{o \in Obsoletes_A}    (\bigvee \{ pkg \in Repository: NEVRA_{pkg} \models o \})\\
-Pkgs_A = Pkgs_{A_r} \land \neg{Pkgs_{A_c}} \land \neg{Pkgs_{A_o}}
+\begin{align*}
+    Pkgs_{A_r} & = \bigwedge\limits_{r \in Requirements_A} (\bigvee \{ pkg \in Repository: (\exists p \in Provides_{pkg}: p \models r )\})\\
+    Pkgs_{A_c} & = \bigwedge\limits_{c \in Conflicts_A}    (\bigvee \{ pkg \in Repository: (\exists p \in Provides_{pkg}: p \models c \})\\
+    Pkgs_{A_o} & = \bigwedge\limits_{o \in Obsoletes_A}    (\bigvee \{ pkg \in Repository: NEVRA_{pkg} \models o \})\\
+        Pkgs_A & = Pkgs_{A_r} \land \neg{Pkgs_{A_c}} \land \neg{Pkgs_{A_o}}
+\end{align*}
 $$
 
 Then recurse over the requirements to gather their dependencies. The final result of which packages
@@ -182,19 +189,19 @@ to be used by one of [the layers on top of RPM](/Unpacking-RPM-intro/), such as 
 ### Kinda-requires: Recommends and Supplements
 
 The idea behind Recommends is that it describes packages that *should* be a part of the transaction,
-but they don't *need* to be part of the transaction.  If satisfying a Recommends is not possible, it can be ignored.
+but don't *need* to be part of the transaction.  If satisfying a Recommends is not possible, it can be ignored.
 
 Supplements describes the same sort of relationship, but in the other direction. However, Recommends and Supplements
 describe different data. Like "Requires" and "Conflicts", "Recommends" and "Supplements" match "Provides", but they
 match in different directions. For PkgA that "Recommends: ProviderB", the relationship is satisfied by any package
-that provides ProviderB.
+that "Provides" ProviderB.
 
 $$
 Pkgs_{A_{recommends}} = \bigcup\limits_{rec \in Recommends_A} \{ pkg \in Repository: (\exists p \in Provides_{pkg}: p \models rec )\}
 $$
 
-For the case of PkgB "Supplements: ProviderA", a package is to have a Recommends relationship with PkgB
-if any of its providers satisfy ProviderA.
+For the case of PkgB "Supplements: ProviderA", a package being installed has a Recommends relationship with PkgB if any
+of the to-be-installed package providers satisfy ProviderA.
 
 $$
 Pkgs_{A_{supplementedBy}} = \bigcup\limits_{p \in Provides_A} \{ pkg \in Repository: (\exists sup \in Supplements_{pkg}: p \models sup )\}
@@ -203,7 +210,7 @@ $$
 For each of these relationships, the transaction is *more* valid if it contains the recommended/supplemented packages, but it
 is not *invalid* if it is missing them. Solving dependencies with weak dependencies is no longer a satisfiability problem.
 
-It's worth repeating that, from a boolean validity point of view, it is completely valid to ignore weak dependencies.
+It's worth repeating that, from a boolean validity point of view, it is completely correct to ignore weak dependencies.
 
 ### Sorta-requires: Suggests and Enhances
 
@@ -234,11 +241,13 @@ if possible, the depsolver should choose nginx.
 Functionally, Suggests and Enhances are the same are Recommends and Supplements: both pairs of relationships describe a requirement
 that *should* be satisfied, if possible. The difference is that while Recommends and Supplements attempt to satisfy the requirement
 from the set of all available packages, Suggests and Enhances try to satify the requirement only from the packages that are already
-a part of the transaction.
+possible solutions to a transation.
 
 $$
-Pkgs_{A_{suggests}} = \bigcup\limits_{sug \in Suggests_A} \{ pkg \in Transaction: (\exists p \in Provides_{pkg}: p \models sug)\}\\
-Pkgs_{A_{enhancedBy}} = \bigcup\limits_{p \in Provides_A} \{ pkg \in Transaction: (\exists enh \in Enhances_{pkg}: p \models enh )\}
+\begin{align*}
+    Pkgs_{A_{suggests}}   & = \bigcup\limits_{sug \in Suggests_A} \{ pkg \in Transaction: (\exists p \in Provides_{pkg}: p \models sug)\}\\
+    Pkgs_{A_{enhancedBy}} & = \bigcup\limits_{p \in Provides_A} \{ pkg \in Transaction: (\exists enh \in Enhances_{pkg}: p \models enh )\}
+\end{align*}
 $$
 
 This means that the packages involved in Suggests/Enhances relationships cannot be determined until the rest of the package set
@@ -256,7 +265,10 @@ expressions, enclosed in parenthesis, can be used. The following expressions are
 * (A with B)
 * (A without B)
 
-The first four are self-explanatory. For "with", the expression is satisfied by any package that satisfied both the left and
+"and" and "or" are pretty self-explanatory. "A if B [else C]" means $$B \implies A [\land \neg{B} \implies C]$$, and
+"A unless B [else C]" means $$\neg{B} \implies A [\land B \implies C]$$.
+
+For "with", the expression is satisfied by any package that satisfies both the left and
 right operands. For "without", the expression is satisfied by any package that satisfies the left operand and does not satisfy
 the right operand. "with" and "without" change the space that package requirements operate over. Instead of evaluating a requirement
 across all possible packages, "with" and "without" create an expression that must be satisfied by a single package, and then use
@@ -270,11 +282,11 @@ RPM will reject.
 
 RPM rejects all of the following:
 
-1) Requires: ((A if B) or C)
-2) Conflicts: ((A unless B) and C)
-3) Requires: (A unless B)
-4) Conflicts: (A if B)
-5) Enhances: (A if B)
+1. Requires: ((A if B) or C)
+2. Conflicts: ((A unless B) and C)
+3. Requires: (A unless B)
+4. Conflicts: (A if B)
+5. Enhances: (A if B)
 
 Let's try to unpack why.
 
